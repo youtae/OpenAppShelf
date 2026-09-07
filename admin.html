@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>후보 검토 — OpenAppShelf</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .topbar { max-width: 1440px; margin: auto; }
+    main { max-width: 1360px; margin: auto; padding-bottom: 64px; }
+    .page-heading { align-items: center; }
+    .subtle, .worker, .meta, figcaption { color: var(--muted); font-size: .875rem; }
+    .worker { margin-top: 20px; padding-bottom: 22px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 24px 0; }
+    button { min-height: 44px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 15px; background: #fff; color: var(--ink); }
+    button:hover { background: var(--surface); border-color: #aabdf2; }
+    button[aria-pressed="true"] { color: var(--blue); border-color: var(--blue); background: var(--blue-wash); }
+    button:disabled { cursor: wait; opacity: .55; }
+    button.primary { background: var(--blue); color: white; border-color: var(--blue); }
+    button.primary:hover { background: #1c43b4; }
+    button.reject { color: #a12828; }
+    .review-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 36px; align-items: start; }
+    .bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 24px; padding: 16px; background: var(--surface); border-radius: 12px; }
+    .bulk label { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+    .bulk input, .pick input { width: 18px; height: 18px; }
+    .bulk p { width: 100%; font-size: .8125rem; color: var(--muted); }
+    #selection-count { font-variant-numeric: tabular-nums; color: var(--muted); }
+    .queue { position: sticky; top: 16px; max-height: clamp(280px, calc(100dvh - 440px), 720px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border-top: 1px solid var(--line); }
+    .candidate-row { display: flex; align-items: start; border-bottom: 1px solid var(--line); }
+    .candidate-row:has([aria-current="true"]) { background: var(--blue-wash); }
+    .pick { display: grid; place-items: center; flex-shrink: 0; width: 44px; min-height: 56px; cursor: pointer; }
+    .candidate { display: block; width: 100%; min-width: 0; text-align: left; padding: 18px 12px 18px 0; border: 0; border-radius: 0; background: transparent; }
+    .candidate strong, .candidate span { display: block; }
+    .candidate strong { font-size: 1rem; }
+    .candidate .summary { margin: 5px 0 8px; font-size: .875rem; color: var(--muted); }
+    .candidate[aria-current="true"] { background: var(--blue-wash); color: var(--blue); }
+    .detail { min-width: 0; padding-bottom: 12px; overflow-anchor: none; }
+    .detail h2 { font-size: clamp(1.5rem, 3vw, 2rem); letter-spacing: -.03em; }
+    .lead { margin: 10px 0 12px; font-size: 1.0625rem; max-width: 68ch; }
+    .meta { display: flex; gap: 8px 16px; flex-wrap: wrap; margin: 10px 0; }
+    .links { display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 16px 0 24px; font-size: .875rem; color: var(--blue); }
+    figure { margin: 0 0 28px; }
+    .preview { display: grid; place-items: center; aspect-ratio: 16 / 9; background: var(--surface); border-radius: 14px; overflow: hidden; }
+    .preview img { width: 100%; height: 100%; object-fit: contain; min-height: 0; }
+    .preview img.logo { max-width: 40%; max-height: 70%; }
+    .preview span { padding: 24px; color: var(--muted); }
+    figcaption { margin-top: 8px; }
+    .copy { max-width: 72ch; }
+    .copy h3 { font-size: 1rem; margin: 26px 0 8px; }
+    .copy p, .copy li { color: var(--muted); }
+    .copy ol { padding-left: 24px; margin-top: 8px; }
+    .downloads { width: 100%; border-collapse: collapse; font-size: .875rem; margin-top: 12px; }
+    .downloads th, .downloads td { text-align: left; vertical-align: top; padding: 12px 8px; border-bottom: 1px solid var(--line); }
+    .downloads th { color: var(--muted); font-weight: 500; }
+    .downloads th:first-child, .downloads td:first-child { padding-left: 0; }
+    .downloads td:first-child { width: 76px; white-space: nowrap; }
+    .downloads td:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .downloads a { color: var(--blue); word-break: break-all; }
+    .actions { border-top: 1px solid var(--line); margin-top: 30px; padding-top: 20px; }
+    .actions p { color: var(--muted); font-size: .875rem; margin-bottom: 14px; max-width: 65ch; }
+    .action-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+    .message { margin-top: 16px; max-width: 80ch; }
+    .message:empty { display: none; }
+    .problem { color: #a12828; }
+    .recovery { background: #fff4dd; padding: 18px; border-radius: 12px; margin-top: 18px; }
+    .recovery p { max-width: 75ch; margin-bottom: 12px; color: #78510c; }
+    .empty { padding: 36px 20px; }
+    .login { max-width: 480px; margin-top: 36px; padding: 28px; border: 1px solid var(--line); border-radius: 14px; }
+    .login p { color: var(--muted); margin: 12px 0 20px; }
+    .login label { display: block; margin-bottom: 8px; }
+    .login input { display: block; width: 100%; padding: 12px; min-height: 48px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 16px; }
+    .login details { margin-top: 24px; color: var(--muted); font-size: .875rem; }
+    .login summary { cursor: pointer; min-height: 44px; }
+    .login code { display: block; overflow-wrap: anywhere; margin: 8px 0 16px; color: var(--ink); }
+    @media (max-width: 800px) {
+      .review-layout { grid-template-columns: 1fr; gap: 28px; }
+      .queue { position: static; max-height: 310px; }
+      .topbar { padding: 18px 20px; gap: 16px; }
+      .topbar .header-caption { display: none; }
+      main { padding: 28px 20px 48px; }
+      .page-heading { align-items: start; }
+      .page-heading button { flex-shrink: 0; }
+      .filters { gap: 6px; }
+      .filters button { padding: 8px 11px; }
+      .downloads th, .downloads td { padding: 10px 5px; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 건너뛰기</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="OpenAppShelf 홈">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="10" fill="currentColor"/><path d="M10 11h6v15h-6zm9 0h4v15h-4zm7 0h4v15h-4zM8 30h24" fill="white" stroke="white" stroke-width="2"/></svg>
+      <span>OpenApp<span class="brand-light">Shelf</span></span>
+    </a>
+    <span class="header-caption">관리자 · 로컬 전용</span><a class="about-link" href="/#catalog">공개 목록 보기</a>
+  </header>
+  <main id="main">
+    <div class="page-heading"><div><h1>후보 검토</h1><p>소개와 공식 배포 정보를 확인하고, 공개할 앱을 골라주세요.</p></div><div class="action-buttons"><button id="reload" hidden>새로고침</button><button id="logout" hidden>로그아웃</button></div></div>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+    <p id="error" class="message problem" role="alert"></p>
+    <form id="login" class="login" hidden>
+      <h2>관리자 로그인</h2><p>이 컴퓨터에 설정된 관리자 키 또는 비밀번호를 입력하세요.</p>
+      <label for="secret">관리자 키 또는 비밀번호</label><input id="secret" name="password" type="password" autocomplete="current-password" maxlength="256" required>
+      <button class="primary" type="submit">로그인</button>
+      <details><summary>키 확인 · 비밀번호 설정 방법</summary>프로젝트 폴더의 터미널에서 자동 키를 확인하세요.<code>npm run admin -- key</code>직접 정한 비밀번호를 사용하려면 다음 명령을 실행하세요.<code>npm run admin -- password</code>비밀번호를 잊었다면 같은 명령으로 다시 설정할 수 있습니다.</details>
+    </form>
+    <div id="review-panel" hidden>
+    <p class="worker" id="worker">수집 기록을 불러오는 중입니다.</p>
+    <div class="recovery" id="recovery" hidden><p>승인한 JSON과 게시 화면의 동기화가 끝나지 않았습니다. 다시 동기화하면 README와 검색 결과에 반영됩니다.</p><button id="sync">다시 동기화</button></div>
+    <nav class="filters" id="filters" aria-label="검토 상태"></nav>
+    <div class="bulk" id="bulk" aria-label="선택한 후보 일괄 처리">
+      <label><input type="checkbox" id="select-all">현재 목록 전체 선택</label><span id="selection-count" role="status">0개 선택</span>
+      <div class="action-buttons"><button class="primary" data-bulk-action="approve" disabled>선택 승인하고 공개</button><button data-bulk-action="hold" disabled>선택 보류</button><button class="reject" data-bulk-action="reject" disabled>선택 거절</button><button data-bulk-action="pending" disabled>선택 대기로</button></div>
+      <p>승인된 앱은 선택에서 제외됩니다. 상태 탭을 바꾸면 선택이 해제됩니다.</p>
+    </div>
+    <div class="review-layout" id="workspace" aria-busy="true"><nav class="queue" id="queue" aria-label="후보 목록"></nav><section class="detail" id="detail" aria-label="후보 상세"><p class="empty">후보를 불러오고 있습니다.</p></section></div>
+    </div>
+    <noscript><p>관리자 검토에는 JavaScript가 필요합니다.</p></noscript>
+  </main>
+  <script type="module" nonce="__ADMIN_NONCE__">
+    const $ = selector => document.querySelector(selector);
+    const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const labels = { pending: '검토 대기', held: '보류', rejected: '거절', approved: '승인됨', all: '전체' };
+    const platforms = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
+    const images = { screenshot: '공식 소개 화면', logo: '공식 로고', social: '홈페이지 대표 이미지', website: '홈페이지 캡처', generated: '자동 생성 소개 카드' };
+    const levels = { easy: '간단히 시작', setup: '준비 조건 확인', developer: '개발자용' };
+    const date = value => value ? new Date(value).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '기록 없음';
+    const link = (url, text) => `<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${escape(text)}<span class="sr-only"> (새 탭)</span></a>`;
+    let data = { items: [] }, filter = 'pending', selected = '', busy = false;
+    const key = item => `${item.batch}/${item.app.id}`;
+    const checked = new Map();
+    const visibleItems = () => data.items.filter(item => filter === 'all' || item.status === filter);
+    function updateSelection() {
+      const eligible = visibleItems().filter(item => item.status !== 'approved');
+      $('#select-all').checked = eligible.length > 0 && checked.size === eligible.length;
+      $('#select-all').indeterminate = checked.size > 0 && checked.size < eligible.length;
+      $('#select-all').disabled = busy || !eligible.length;
+      $('#selection-count').textContent = `${checked.size}개 선택`;
+      document.querySelectorAll('[data-bulk-action]').forEach(button => { button.disabled = busy || !checked.size; });
+      document.querySelectorAll('[data-check]').forEach(input => { input.checked = checked.has(input.dataset.check); input.disabled = busy || input.dataset.approved === 'true'; });
+    }
+    function render(detailOnly = false) {
+      const items = visibleItems();
+      if (!items.some(item => key(item) === selected)) selected = items[0] ? key(items[0]) : '';
+      if (!detailOnly) {
+      $('#filters').innerHTML = Object.entries(labels).map(([id, label]) => `<button data-filter="${id}" aria-pressed="${id === filter}">${label} ${id === 'all' ? data.items.length : data.items.filter(item => item.status === id).length}</button>`).join('');
+      const scrollTop = $('#queue').scrollTop;
+      $('#queue').innerHTML = items.map(item => `<div class="candidate-row"><label class="pick"><input type="checkbox" data-check="${escape(key(item))}" data-approved="${item.status === 'approved'}" aria-label="${escape(item.app.name)} 선택"><span class="sr-only">${escape(item.app.name)} 선택</span></label><button class="candidate" data-key="${escape(key(item))}" aria-current="${key(item) === selected}"><strong>${escape(item.app.name)}</strong><span class="summary">${escape(item.app.summary)}</span><span class="subtle">${labels[item.status]} · ${date(item.collectedAt)}</span></button></div>`).join('');
+      $('#queue').scrollTop = scrollTop;
+      } else {
+        document.querySelectorAll('[data-key]').forEach(button => button.setAttribute('aria-current', String(button.dataset.key === selected)));
+      }
+      updateSelection();
+      const item = items.find(item => key(item) === selected);
+      if (!item) { $('#detail').innerHTML = `<div class="empty"><h2>${filter === 'pending' ? '대기 중인 후보가 없습니다.' : '이 상태의 후보가 없습니다.'}</h2><p>다른 상태를 선택하거나 다음 수집 후 새로고침하세요.</p></div>`; return; }
+      const app = item.app;
+      $('#detail').innerHTML = `<h2 tabindex="-1" id="candidate-title">${escape(app.name)}</h2><p class="lead">${escape(app.summary)}</p>
+        <p class="meta"><span>${labels[item.status]}</span><span>${escape(app.repo)}</span><span>${escape(app.version)}</span><span>${escape(app.license)}</span><span>${levels[app.level]}</span></p>
+        <div class="links">${link(`https://github.com/${app.repo}`, 'GitHub')}${link(app.website, '홈페이지')}${link(app.guide, '설치 안내')}${link(app.release, '공식 릴리스')}${app.licenseSource ? link(app.licenseSource, '라이선스 원문') : ''}</div>
+        ${app.imageKind === 'none' ? '<div class="preview"><span>제공된 이미지가 없습니다.</span></div>' : `<figure><div class="preview"><img class="${app.imageKind === 'logo' ? 'logo' : ''}" src="${escape(app.image)}" alt="${escape(app.name)} ${images[app.imageKind]}" referrerpolicy="no-referrer"><span hidden>이미지를 불러오지 못했습니다. 이미지 출처에서 확인하세요.</span></div><figcaption>${link(app.imageSource, images[app.imageKind])}${app.imageChecked ? ` · ${escape(app.imageChecked)} 확인` : ''}</figcaption></figure>`}
+        <div class="copy"><h3>앱 소개</h3><p>${escape(app.description)}</p><h3>준비 조건</h3><p>${escape(app.requirements)}</p><h3>시작 방법</h3><ol>${app.firstSteps.map(step => `<li>${escape(step)}</li>`).join('')}</ol><h3>공식 설치 파일 · ${app.downloads.length}개</h3><p>배포일 ${escape(app.published)} · 정보 확인일 ${escape(app.checked)}</p></div>
+        <table class="downloads"><caption class="sr-only">공식 다운로드 파일</caption><thead><tr><th scope="col">운영체제</th><th scope="col">파일</th><th scope="col">크기</th></tr></thead><tbody>${app.downloads.map(file => `<tr><td>${platforms[file.os]}</td><td>${link(file.url, file.name)}</td><td>${(file.bytes / 1048576).toFixed(1)} MB</td></tr>`).join('')}</tbody></table>
+        <div class="actions">${item.status === 'approved' ? '<p>공개 목록에 등록된 앱입니다. 게시 동기화가 필요한 경우 상단 안내를 확인하세요.</p>' : `<p>승인하면 공개 목록과 README에 추가됩니다. 보류·거절은 공개하지 않으며 나중에 다시 검토할 수 있습니다.</p><div class="action-buttons"><button class="primary" data-action="approve">승인하고 공개</button>${item.status !== 'held' ? '<button data-action="hold">보류</button>' : ''}${item.status !== 'rejected' ? '<button class="reject" data-action="reject">거절</button>' : ''}${item.status !== 'pending' ? '<button data-action="pending">검토 대기로 되돌리기</button>' : ''}</div>`}</div>`;
+      const img = $('#detail img');
+      if (img) img.addEventListener('error', () => { img.hidden = true; img.nextElementSibling.hidden = false; }, { once: true });
+    }
+    function setBusy(value) { busy = value; $('#workspace').setAttribute('aria-busy', String(value)); document.querySelectorAll('button').forEach(button => { button.disabled = value; }); updateSelection(); }
+    function authenticated(value) {
+      $('#login').hidden = value; $('#review-panel').hidden = !value; $('#logout').hidden = !value; $('#reload').hidden = !value;
+      if (!value) { data = { items: [] }; checked.clear(); selected = ''; $('#queue').replaceChildren(); $('#detail').replaceChildren(); $('#worker').textContent = ''; }
+    }
+    async function load() {
+      const response = await fetch('/api/admin/reviews');
+      const result = await response.json();
+      if (response.status === 401) { authenticated(false); return; }
+      if (!response.ok) throw new Error(result.error || '후보를 불러오지 못했습니다.');
+      authenticated(true);
+      data = result;
+      for (const [id, revision] of checked) if (!visibleItems().some(item => key(item) === id && item.revision === revision && item.status !== 'approved')) checked.delete(id);
+      $('#recovery').hidden = !data.publicationPending;
+      $('#worker').textContent = `공개 ${data.catalogCount}개 · 수집 기록: 마지막 완료 ${date(data.worker?.completedAt)} · 다음 예정 ${date(data.worker?.nextRunAt)} (이 브라우저 시간대)`;
+      $('#error').textContent = data.warnings.join('\n');
+      render();
+    }
+    async function reload() { if (busy) return; setBusy(true); $('#error').textContent = ''; try { await load(); } catch (error) { $('#error').textContent = `${error.message} 서버 상태를 확인하고 새로고침하세요.`; $('#detail').innerHTML = '<p class="empty">목록을 불러오지 못했습니다.</p>'; } finally { setBusy(false); } }
+    async function act(action, bulk = false) {
+      if (busy) return;
+      const item = data.items.find(item => key(item) === selected);
+      const targets = bulk ? visibleItems().filter(item => checked.has(key(item))).map(item => ({ batch: item.batch, id: item.app.id, revision: checked.get(key(item)) })) : item ? [{ batch: item.batch, id: item.app.id, revision: item.revision }] : [];
+      if (action !== 'sync' && !targets.length) return;
+      setBusy(true); $('#message').textContent = ''; $('#error').textContent = '';
+      try {
+        const response = await fetch('/api/admin/reviews', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': data.token }, body: JSON.stringify(action === 'sync' ? { action } : { action, items: targets }) });
+        const result = await response.json();
+        if (!response.ok) { await load(); throw new Error(result.error); }
+        $('#message').textContent = result.message;
+        for (const target of targets) checked.delete(`${target.batch}/${target.id}`);
+        await load();
+      } catch (error) { $('#error').textContent = error.message; }
+      finally { setBusy(false); }
+    }
+    $('#filters').addEventListener('click', event => { const button = event.target.closest('[data-filter]'); if (button && !busy) { filter = button.dataset.filter; checked.clear(); $('#queue').scrollTop = 0; render(); } });
+    $('#queue').addEventListener('click', event => { const button = event.target.closest('[data-key]'); if (button && !busy) { selected = button.dataset.key; render(true); } });
+    $('#queue').addEventListener('change', event => { const input = event.target.closest('[data-check]'); if (!input || busy) return; const item = data.items.find(item => key(item) === input.dataset.check); if (item?.status !== 'approved') { if (input.checked) checked.set(key(item), item.revision); else checked.delete(key(item)); } updateSelection(); });
+    $('#select-all').addEventListener('change', event => { if (busy) return; checked.clear(); if (event.target.checked) for (const item of visibleItems()) if (item.status !== 'approved') checked.set(key(item), item.revision); updateSelection(); });
+    $('#bulk').addEventListener('click', event => { const button = event.target.closest('[data-bulk-action]'); if (button) act(button.dataset.bulkAction, true); });
+    $('#detail').addEventListener('click', event => { const button = event.target.closest('[data-action]'); if (button) act(button.dataset.action); });
+    $('#reload').addEventListener('click', reload);
+    $('#sync').addEventListener('click', () => act('sync'));
+    $('#login').addEventListener('submit', async event => {
+      event.preventDefault(); if (busy) return; setBusy(true); $('#error').textContent = ''; $('#message').textContent = '';
+      try {
+        const response = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: $('#secret').value }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error);
+        await load();
+      } catch (error) { $('#error').textContent = error.message; }
+      finally { $('#secret').value = ''; setBusy(false); }
+    });
+    $('#logout').addEventListener('click', async () => {
+      if (busy) return; setBusy(true); $('#error').textContent = ''; $('#message').textContent = '';
+      try {
+        const response = await fetch('/api/admin/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': data.token }, body: '{}' });
+        if (!response.ok && response.status !== 401) throw new Error((await response.json()).error);
+        authenticated(false); $('#message').textContent = '로그아웃했습니다.';
+      } catch (error) { $('#error').textContent = error.message; }
+      finally { setBusy(false); }
+    });
+    await reload();
+  </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "open-app-shelf",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.20.0 <25"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "admin": "node admin-auth.mjs",
+    "readme": "node catalog.mjs --readme",
+    "sync": "node --env-file-if-exists=.env catalog.mjs --sync",
+    "images": "node images.mjs",
+    "collect": "node --env-file-if-exists=.env collect.mjs",
+    "collect:watch": "node --env-file-if-exists=.env collect-worker.mjs",
+    "check:codex": "node --env-file-if-exists=.env codex-client.mjs",
+    "check": "node --check app.mjs && node --check server.mjs && node --check catalog.mjs && node --check codex-client.mjs && node --check collect.mjs && node --check collect-worker.mjs && node --check images.mjs && node --check public-web.mjs && node app.mjs --self-test && node catalog.mjs --check && node public-web.mjs --self-test && node images.mjs --self-test && node collect.mjs --self-test && node collect-worker.mjs --self-test",
+    "test": "npm run check && node admin-auth.mjs --self-test && node --env-file-if-exists=.env catalog.mjs --self-test && node --env-file-if-exists=.env server.mjs --self-test"
+  },
+  "dependencies": {
+    "pg": "8.23.0",
+    "playwright": "1.63.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/youtae/OpenAppShelf.git"
+  }
+}
