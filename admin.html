@@ -50,6 +50,27 @@
     .copy h3 { font-size: 1rem; margin: 26px 0 8px; }
     .copy p, .copy li { color: var(--muted); }
     .copy ol { padding-left: 24px; margin-top: 8px; }
+    .ai-review { border-block: 1px solid var(--line); padding-block: 24px; margin-block: 28px; }
+    .ai-review h3 { font-size: 1.125rem; margin-bottom: 8px; text-wrap: balance; }
+    .ai-review p, .ai-review li, .ai-review blockquote { max-width: 72ch; }
+    .ai-review .subtle { margin-bottom: 16px; }
+    .ai-review label { display: block; margin-block: 20px 8px; }
+    .ai-review textarea { display: block; width: 100%; min-height: 96px; resize: vertical; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; color: var(--ink); caret-color: var(--blue); margin-bottom: 12px; }
+    .ai-review textarea::placeholder { color: var(--muted); }
+    .ai-findings { padding-left: 22px; margin-block: 20px; }
+    .ai-findings li { margin-bottom: 16px; }
+    .ai-findings blockquote { margin: 8px 0; padding: 12px; background: var(--surface); font-size: .875rem; }
+    .ai-findings a { color: var(--blue); font-size: .875rem; }
+    .ai-diff { margin-block: 24px; }
+    .ai-diff h4 { margin: 0 0 8px; font-size: 1rem; }
+    .ai-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .ai-columns > div { min-width: 0; }
+    .ai-columns strong { display: block; margin-bottom: 8px; font-size: .8125rem; color: var(--muted); }
+    .ai-columns ol { margin: 0; padding-left: 24px; }
+    .ai-columns > div:last-child { background: var(--blue-wash); padding: 12px; border-radius: 8px; }
+    .ai-history { margin-block: 20px; }
+    .ai-history summary { cursor: pointer; min-height: 44px; }
+    .ai-history li { margin-bottom: 16px; }
     .downloads { width: 100%; border-collapse: collapse; font-size: .875rem; margin-top: 12px; }
     .downloads th, .downloads td { text-align: left; vertical-align: top; padding: 12px 8px; border-bottom: 1px solid var(--line); }
     .downloads th { color: var(--muted); font-weight: 500; }
@@ -74,6 +95,7 @@
     .login summary { cursor: pointer; min-height: 44px; }
     .login code { display: block; overflow-wrap: anywhere; margin: 8px 0 16px; color: var(--ink); }
     @media (max-width: 800px) {
+      .ai-columns { grid-template-columns: 1fr; gap: 12px; }
       .review-layout { grid-template-columns: 1fr; gap: 28px; }
       .queue { position: static; max-height: 310px; }
       .topbar { padding: 18px 20px; gap: 16px; }
@@ -128,7 +150,29 @@
     const levels = { easy: '간단히 시작', setup: '준비 조건 확인', developer: '개발자용' };
     const date = value => value ? new Date(value).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '기록 없음';
     const link = (url, text) => `<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${escape(text)}<span class="sr-only"> (새 탭)</span></a>`;
-    let data = { items: [] }, filter = 'pending', selected = '', busy = false;
+    let data = { items: [] }, filter = 'pending', selected = '', busy = false, aiController = null;
+    const aiFields = { summary: '한 줄 소개', description: '앱 소개', requirements: '준비 조건', firstSteps: '시작 방법' };
+    const fieldText = value => Array.isArray(value) ? `<ol>${value.map(text => `<li>${escape(text)}</li>`).join('')}</ol>` : `<p>${escape(value)}</p>`;
+    const findingList = (findings, sources) => `<ul class="ai-findings">${findings.map(finding => {
+      const source = sources.find(source => source.id === finding.source);
+      return `<li><strong>${aiFields[finding.field]}</strong><p>${escape(finding.message)}</p>${source ? `<blockquote>${escape(finding.quote)}</blockquote>${link(source.url, source.label)}` : '<p class="subtle">직접 인용 없음 · 근거 부족 또는 표현 제안</p>'}</li>`;
+    }).join('')}</ul>`;
+    function aiPanel(item) {
+      if (item.status === 'approved') return '';
+      const ai = item.ai, result = ai?.result;
+      const changes = result ? Object.keys(aiFields).filter(field => JSON.stringify(item.app[field]) !== JSON.stringify(result.proposed[field])) : [];
+      return `<section class="ai-review" aria-labelledby="ai-title"><h3 id="ai-title" tabindex="-1">AI 검토</h3>
+        <p class="subtle">${date(ai?.collectedAt || item.collectedAt)}에 수집한 README와 배포 정보를 대조합니다. 최신 상태나 실제 설치 여부는 확인하지 않습니다.</p>
+        ${result ? `<p>${escape(result.summary)}</p>
+          ${result.findings.length ? findingList(result.findings, ai.sources) : '<p class="subtle">추가 지적 사항이 없습니다. 정확성을 보증하는 결과는 아닙니다.</p>'}
+          ${changes.map(field => `<div class="ai-diff"><h4>${aiFields[field]}</h4><div class="ai-columns"><div><strong>현재 후보</strong>${fieldText(item.app[field])}</div><div><strong>수정 제안</strong>${fieldText(result.proposed[field])}</div></div></div>`).join('')}
+          <p class="subtle">${changes.length ? '달라지는 항목만 표시합니다. 수정안 적용 후에도 공개하려면 별도로 승인해야 합니다.' : '현재 후보와 수정안이 같습니다.'}</p>
+          <button data-action="apply-ai" data-unchanged="${!changes.length}" ${changes.length ? '' : 'disabled'}>수정안 적용</button>
+          <details class="ai-history"><summary>대화 기록 ${ai.history.length}개</summary><ol>${ai.history.map(turn => `<li><strong>${escape(turn.message)}</strong><p>${escape(turn.summary)}</p>${turn.findings?.length ? findingList(turn.findings, ai.sources) : ''}</li>`).join('')}</ol></details>` : '<p>설명의 근거와 표현을 점검하고 수정안을 제안합니다. 후보 내용은 자동으로 바뀌지 않습니다.</p>'}
+        <form id="ai-form"><label for="ai-request">${ai ? `후속 수정 요청 (${ai.history.length}/10회)` : '검토 요청 (선택)'}</label><textarea id="ai-request" maxlength="2000" rows="3" placeholder="예: 개발 용어를 줄이고, 확인되지 않은 설치 조건을 짚어주세요."></textarea>
+          <div class="action-buttons"><button type="submit" ${ai?.history.length >= 10 ? 'data-limit="true" disabled' : ''}>${ai ? '수정 요청' : 'AI 검토 시작'}</button>${ai ? '<button type="button" id="ai-restart">새 검토 시작</button>' : ''}<button type="button" id="ai-cancel" hidden>검토 취소</button></div>
+        </form><p id="ai-progress" class="message" role="status" aria-live="polite"></p></section>`;
+    }
     const key = item => `${item.batch}/${item.app.id}`;
     const checked = new Map();
     const visibleItems = () => data.items.filter(item => filter === 'all' || item.status === filter);
@@ -160,13 +204,21 @@
         <p class="meta"><span>${labels[item.status]}</span><span>${escape(app.repo)}</span><span>${escape(app.version)}</span><span>${escape(app.license)}</span><span>${levels[app.level]}</span></p>
         <div class="links">${link(`https://github.com/${app.repo}`, 'GitHub')}${link(app.website, '홈페이지')}${link(app.guide, '설치 안내')}${link(app.release, '공식 릴리스')}${app.licenseSource ? link(app.licenseSource, '라이선스 원문') : ''}</div>
         ${app.imageKind === 'none' ? '<div class="preview"><span>제공된 이미지가 없습니다.</span></div>' : `<figure><div class="preview"><img class="${app.imageKind === 'logo' ? 'logo' : ''}" src="${escape(app.image)}" alt="${escape(app.name)} ${images[app.imageKind]}" referrerpolicy="no-referrer"><span hidden>이미지를 불러오지 못했습니다. 이미지 출처에서 확인하세요.</span></div><figcaption>${link(app.imageSource, images[app.imageKind])}${app.imageChecked ? ` · ${escape(app.imageChecked)} 확인` : ''}</figcaption></figure>`}
-        <div class="copy"><h3>앱 소개</h3><p>${escape(app.description)}</p><h3>준비 조건</h3><p>${escape(app.requirements)}</p><h3>시작 방법</h3><ol>${app.firstSteps.map(step => `<li>${escape(step)}</li>`).join('')}</ol><h3>공식 설치 파일 · ${app.downloads.length}개</h3><p>배포일 ${escape(app.published)} · 정보 확인일 ${escape(app.checked)}</p></div>
+        <div class="copy"><h3>앱 소개</h3><p>${escape(app.description)}</p><h3>준비 조건</h3><p>${escape(app.requirements)}</p><h3>시작 방법</h3><ol>${app.firstSteps.map(step => `<li>${escape(step)}</li>`).join('')}</ol></div>
+        ${aiPanel(item)}
+        <div class="copy"><h3>공식 설치 파일 · ${app.downloads.length}개</h3><p>배포일 ${escape(app.published)} · 정보 확인일 ${escape(app.checked)}</p></div>
         <table class="downloads"><caption class="sr-only">공식 다운로드 파일</caption><thead><tr><th scope="col">운영체제</th><th scope="col">파일</th><th scope="col">크기</th></tr></thead><tbody>${app.downloads.map(file => `<tr><td>${platforms[file.os]}</td><td>${link(file.url, file.name)}</td><td>${(file.bytes / 1048576).toFixed(1)} MB</td></tr>`).join('')}</tbody></table>
         <div class="actions">${item.status === 'approved' ? '<p>공개 목록에 등록된 앱입니다. 게시 동기화가 필요한 경우 상단 안내를 확인하세요.</p>' : `<p>승인하면 공개 목록과 README에 추가됩니다. 보류·거절은 공개하지 않으며 나중에 다시 검토할 수 있습니다.</p><div class="action-buttons"><button class="primary" data-action="approve">승인하고 공개</button>${item.status !== 'held' ? '<button data-action="hold">보류</button>' : ''}${item.status !== 'rejected' ? '<button class="reject" data-action="reject">거절</button>' : ''}${item.status !== 'pending' ? '<button data-action="pending">검토 대기로 되돌리기</button>' : ''}</div>`}</div>`;
       const img = $('#detail img');
       if (img) img.addEventListener('error', () => { img.hidden = true; img.nextElementSibling.hidden = false; }, { once: true });
     }
-    function setBusy(value) { busy = value; $('#workspace').setAttribute('aria-busy', String(value)); document.querySelectorAll('button').forEach(button => { button.disabled = value; }); updateSelection(); }
+    function setBusy(value) {
+      busy = value; $('#workspace').setAttribute('aria-busy', String(value));
+      document.querySelectorAll('button').forEach(button => { button.disabled = value || button.dataset.unchanged === 'true' || button.dataset.limit === 'true'; });
+      if ($('#ai-request')) $('#ai-request').disabled = value;
+      if ($('#ai-cancel')) { $('#ai-cancel').hidden = !aiController; $('#ai-cancel').disabled = false; }
+      updateSelection();
+    }
     function authenticated(value) {
       $('#login').hidden = value; $('#review-panel').hidden = !value; $('#logout').hidden = !value; $('#reload').hidden = !value;
       if (!value) { data = { items: [] }; checked.clear(); selected = ''; $('#queue').replaceChildren(); $('#detail').replaceChildren(); $('#worker').textContent = ''; }
@@ -192,7 +244,7 @@
       if (action !== 'sync' && !targets.length) return;
       setBusy(true); $('#message').textContent = ''; $('#error').textContent = '';
       try {
-        const response = await fetch('/api/admin/reviews', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': data.token }, body: JSON.stringify(action === 'sync' ? { action } : { action, items: targets }) });
+        const response = await fetch('/api/admin/reviews', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Token': data.token }, body: JSON.stringify(action === 'sync' ? { action } : action === 'apply-ai' ? { action, ...targets[0], aiId: item.ai.id } : { action, items: targets }) });
         const result = await response.json();
         if (!response.ok) { await load(); throw new Error(result.error); }
         $('#message').textContent = result.message;
@@ -201,12 +253,47 @@
       } catch (error) { $('#error').textContent = error.message; }
       finally { setBusy(false); }
     }
+    async function runAI(restart = false) {
+      if (busy) return;
+      const item = data.items.find(item => key(item) === selected);
+      if (!item || item.status === 'approved') return;
+      const message = $('#ai-request').value;
+      aiController = new AbortController(); setBusy(true); $('#message').textContent = ''; $('#error').textContent = '';
+      try {
+        const response = await fetch('/api/admin/ai-review', { method: 'POST', signal: aiController.signal,
+          headers: { 'Content-Type': 'application/json', 'X-Admin-Token': data.token },
+          body: JSON.stringify({ batch: item.batch, id: item.app.id, revision: item.revision, message, restart }) });
+        if (!response.ok) { if (response.status === 401) authenticated(false); throw new Error((await response.json()).error); }
+        const reader = response.body.getReader(), decoder = new TextDecoder();
+        let buffer = '', finished = false;
+        while (true) {
+          const { done, value } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          let newline;
+          while ((newline = buffer.indexOf('\n')) >= 0) {
+            const event = JSON.parse(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
+            if (event.type === 'error') throw new Error(event.error);
+            if (event.type === 'progress') $('#ai-progress').textContent = event.message;
+            if (event.type === 'result') { finished = true; $('#message').textContent = event.message; }
+          }
+          if (done) break;
+        }
+        if (!finished) throw new Error('검토 연결이 끊겼습니다. 새로고침 후 저장된 결과를 확인하세요.');
+        await load(); $('#ai-title')?.focus({ preventScroll: true });
+      } catch (error) {
+        if (aiController.signal.aborted) $('#message').textContent = '검토를 취소했습니다. 후보 내용은 변경하지 않았습니다.';
+        else $('#error').textContent = error.message;
+        if ($('#ai-progress')) $('#ai-progress').textContent = '';
+      } finally { aiController = null; setBusy(false); }
+    }
     $('#filters').addEventListener('click', event => { const button = event.target.closest('[data-filter]'); if (button && !busy) { filter = button.dataset.filter; checked.clear(); $('#queue').scrollTop = 0; render(); } });
     $('#queue').addEventListener('click', event => { const button = event.target.closest('[data-key]'); if (button && !busy) { selected = button.dataset.key; render(true); } });
     $('#queue').addEventListener('change', event => { const input = event.target.closest('[data-check]'); if (!input || busy) return; const item = data.items.find(item => key(item) === input.dataset.check); if (item?.status !== 'approved') { if (input.checked) checked.set(key(item), item.revision); else checked.delete(key(item)); } updateSelection(); });
     $('#select-all').addEventListener('change', event => { if (busy) return; checked.clear(); if (event.target.checked) for (const item of visibleItems()) if (item.status !== 'approved') checked.set(key(item), item.revision); updateSelection(); });
     $('#bulk').addEventListener('click', event => { const button = event.target.closest('[data-bulk-action]'); if (button) act(button.dataset.bulkAction, true); });
     $('#detail').addEventListener('click', event => { const button = event.target.closest('[data-action]'); if (button) act(button.dataset.action); });
+    $('#detail').addEventListener('submit', event => { if (event.target.id === 'ai-form') { event.preventDefault(); runAI(); } });
+    $('#detail').addEventListener('click', event => { if (event.target.closest('#ai-cancel')) aiController?.abort(); if (event.target.closest('#ai-restart')) runAI(true); });
     $('#reload').addEventListener('click', reload);
     $('#sync').addEventListener('click', () => act('sync'));
     $('#login').addEventListener('submit', async event => {

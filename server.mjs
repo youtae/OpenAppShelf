@@ -6,7 +6,8 @@ import { once } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import { categories, platforms, filterApps } from './app.mjs';
 import { connectDatabase, readCatalog } from './catalog.mjs';
-import { readReviews, reviewCandidate, selfTestReviews } from './review.mjs';
+import { readReviews, reviewCandidate, reviewAI, selfTestReviews } from './review.mjs';
+import { installation, selfTestInstallation } from './install.mjs';
 import { createAdminAuth, ensureCredential, readCredential } from './admin-auth.mjs';
 
 const pool = await connectDatabase();
@@ -27,8 +28,10 @@ const files = new Map([
 const server = createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
   const route = req.url.split('?')[0];
-  if (['/admin', '/admin.html', '/api/admin/reviews', '/api/admin/login', '/api/admin/logout'].includes(route)) {
+  if (['/install', '/api/admin/installation', '/admin', '/admin.html', '/api/admin/reviews', '/api/admin/ai-review', '/api/admin/login', '/api/admin/logout'].includes(route)) {
     const send = (status, data) => {
       const body = JSON.stringify(data);
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
@@ -43,6 +46,12 @@ const server = createServer(async (req, res) => {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'nonce-${adminToken}'; style-src 'self' 'unsafe-inline'; img-src 'self' https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`);
     try {
+      if (route === '/install') {
+        if (!['GET', 'HEAD'].includes(req.method)) return send(405, { error: '지원하지 않는 요청입니다.' });
+        const id = new URL(req.url, `http://${host}`).searchParams.get('app');
+        res.writeHead(302, { Location: /^[a-z0-9-]+$/.test(id || '') ? `/#app/${id}` : '/' });
+        return res.end();
+      }
       if (route === '/admin' || route === '/admin.html') {
         if (!['GET', 'HEAD'].includes(req.method)) return send(405, { error: '지원하지 않는 요청입니다.' });
         const body = (await readFile(new URL('admin.html', import.meta.url), 'utf8')).replace('__ADMIN_NONCE__', adminToken);
@@ -51,6 +60,7 @@ const server = createServer(async (req, res) => {
       }
       const session = await auth.session(req);
       if (route !== '/api/admin/login' && !session) return send(401, { error: '관리자 로그인이 필요합니다.' });
+      if (route === '/api/admin/installation' && ['GET', 'HEAD'].includes(req.method)) return send(200, { token: session.csrf });
       if (route === '/api/admin/reviews' && ['GET', 'HEAD'].includes(req.method)) return send(200, { ...await readReviews(), token: session.csrf });
       if (req.method !== 'POST') return send(405, { error: '지원하지 않는 요청입니다.' });
       if (req.headers.origin !== `http://${host}` || (route !== '/api/admin/login' && req.headers['x-admin-token'] !== session.csrf)) return send(403, { error: '검토 화면을 새로고침한 뒤 다시 시도하세요.' });
@@ -60,7 +70,7 @@ const server = createServer(async (req, res) => {
         req.setEncoding('utf8');
         req.on('data', chunk => {
           size += Buffer.byteLength(chunk);
-          if (size > (route === '/api/admin/reviews' ? 1048576 : 4096)) reject(Object.assign(new Error('요청 크기가 너무 큽니다.'), { status: 413 }));
+          if (size > (route === '/api/admin/reviews' ? 1048576 : route === '/api/admin/ai-review' ? 16384 : 4096)) reject(Object.assign(new Error('요청 크기가 너무 큽니다.'), { status: 413 }));
           else body += chunk;
         });
         req.on('end', () => resolve(body));
@@ -77,6 +87,30 @@ const server = createServer(async (req, res) => {
       if (route === '/api/admin/logout') {
         res.setHeader('Set-Cookie', auth.logout(req));
         return send(200, { message: '로그아웃했습니다.' });
+      }
+      if (route === '/api/admin/installation') {
+        if (input?.action === 'status') return send(200, await installation(input));
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
+        const event = data => { if (!res.destroyed) res.write(JSON.stringify(data) + '\n'); };
+        try { event({ type: 'result', job: await installation(input, { progress: message => event({ type: 'progress', message }) }) }); }
+        catch (error) { event({ type: 'error', status: error.status || 500, error: error.status === 400 ? error.message : '설치 처리에 실패했습니다. Codex 로그인과 서버 로그를 확인하세요.' }); console.error('Installation failed:', error.code || error.status || error.name); }
+        finally { res.end(); }
+        return;
+      }
+      if (route === '/api/admin/ai-review') {
+        const controller = new AbortController();
+        const cancel = () => { if (!res.writableEnded) controller.abort(); };
+        res.on('close', cancel);
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
+        const event = data => { if (!res.destroyed) res.write(JSON.stringify(data) + '\n'); };
+        event({ type: 'progress', message: '검토 요청을 확인하고 있습니다.' });
+        try {
+          const result = await reviewAI(input, undefined, { signal: controller.signal, onProgress: message => event({ type: 'progress', message }) });
+          event({ type: 'result', ...result });
+        } catch (error) {
+          if (!controller.signal.aborted) event({ type: 'error', status: error.status || 500, error: error.status ? error.message : 'AI 검토에 실패했습니다. 새로고침 후 다시 시도하세요.' });
+        } finally { res.off('close', cancel); res.end(); }
+        return;
       }
       return send(200, await reviewCandidate(input, pool));
     } catch (error) {
@@ -181,6 +215,8 @@ if (process.argv.includes('--self-test')) {
     for (const [path, [name, type]] of files) {
       const response = await get(`${path}?q=test`);
       assert.equal(response.status, 200);
+      assert.equal(response.headers['x-frame-options'], 'DENY');
+      assert.match(response.headers['content-security-policy'], /frame-ancestors 'none'/);
       assert.equal(response.headers['content-type'], `${type}; charset=utf-8`);
       assert.deepEqual(response.body, await readFile(new URL(name, import.meta.url)));
     }
@@ -202,6 +238,7 @@ if (process.argv.includes('--self-test')) {
     assert.equal((await get('/api/admin/reviews', 'GET', { 'X-Forwarded-For': '127.0.0.1' })).status, 403);
     assert.equal((await get('/api/admin/reviews')).status, 401);
     assert.equal((await get('/api/admin/reviews', 'POST')).status, 401);
+    assert.equal((await get('/api/admin/ai-review', 'POST')).status, 401);
     assert.equal((await get('/api/admin/login', 'POST', { Origin: 'https://attacker.example', 'Content-Type': 'application/json' }, '{}')).status, 403);
     const loginHeaders = { Origin: `http://127.0.0.1:${port}`, 'Content-Type': 'application/json' };
     assert.equal((await get('/api/admin/login', 'POST', loginHeaders, JSON.stringify({ secret: 'wrong' }))).status, 401);
@@ -212,13 +249,32 @@ if (process.argv.includes('--self-test')) {
     const reviews = JSON.parse((await get('/api/admin/reviews', 'GET', { Cookie })).body);
     assert.ok(Array.isArray(reviews.items));
     const headers = { ...loginHeaders, Cookie, 'X-Admin-Token': reviews.token };
+    assert.equal((await get('/api/admin/ai-review', 'GET', { Cookie })).status, 405);
+    assert.equal((await get('/api/admin/ai-review', 'POST', { ...headers, 'X-Admin-Token': 'wrong' }, '{}')).status, 403);
+    assert.equal((await get('/api/admin/ai-review', 'POST', { ...headers, Origin: 'https://attacker.example' }, '{}')).status, 403);
+    assert.equal((await get('/api/admin/ai-review', 'POST', headers, 'x'.repeat(16385))).status, 413);
+    const invalidAI = await get('/api/admin/ai-review', 'POST', headers, '{}');
+    assert.match(invalidAI.headers['content-type'], /application\/x-ndjson/);
+    assert.equal(JSON.parse(invalidAI.body.toString().trim().split('\n').at(-1)).status, 400);
     assert.equal((await get('/api/admin/reviews', 'POST', { ...headers, 'X-Admin-Token': 'wrong' }, '{}')).status, 403);
     assert.equal((await get('/api/admin/reviews', 'POST', { ...headers, Origin: 'https://attacker.example' }, '{}')).status, 403);
     assert.equal((await get('/api/admin/reviews', 'POST', headers, '{')).status, 400);
     assert.equal((await get('/api/admin/reviews', 'POST', headers, 'x'.repeat(1048577))).status, 413);
     assert.equal((await get('/api/admin/reviews', 'POST', headers, '{"action":"invalid"}')).status, 400);
+    assert.equal((await get('/api/admin/installation', 'GET', { Cookie })).status, 200);
+    assert.equal((await get('/api/admin/installation', 'POST', { ...headers, 'X-Admin-Token': 'wrong' }, '{}')).status, 403);
+    assert.equal((await get('/api/admin/installation', 'POST', { ...headers, Origin: 'https://attacker.example' }, '{}')).status, 403);
+    const invalidInstall = await get('/api/admin/installation', 'POST', headers, '{}');
+    assert.equal(JSON.parse(invalidInstall.body.toString().trim()).status, 400);
     assert.equal((await get('/api/admin/logout', 'POST', headers, '{}')).status, 200);
     assert.equal((await get('/api/admin/reviews', 'GET', { Cookie })).status, 401);
+    const oldInstall = await get('/install?app=synthetic&file=0');
+    assert.equal(oldInstall.status, 302);
+    assert.equal(oldInstall.headers.location, '/#app/synthetic');
+    assert.equal((await get('/install.html')).status, 404);
+    assert.equal((await get('/api/admin/installation')).status, 401);
+    assert.equal((await get('/install', 'GET', { Host: `attacker.example:${port}` })).status, 403);
+    await selfTestInstallation();
     await selfTestReviews();
     const apps = await readCatalog();
     for (const app of apps.filter(app => app.image.startsWith('./assets/previews/'))) {
